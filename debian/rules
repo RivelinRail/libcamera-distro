@@ -26,7 +26,7 @@ endif
 
 # Only enable rpi pipelines on arm
 ifneq (,$(filter $(DEB_HOST_ARCH), arm64 armhf))
-	PIPELINES=rpi/vc4,rpi/pisp,uvcvideo
+	PIPELINES=rpi/vc4,rpi/pisp
 else
 	PIPELINES=uvcvideo
 endif
@@ -46,13 +46,37 @@ CONFFLAGS += \
 
 override_dh_auto_configure-arch:
 	dh_auto_configure -- \
-		-Ddocumentation=disabled \
+		-Ddocumentation=${DOCUMENTATION} \
+		--libexecdir=libexec/${DEB_HOST_MULTIARCH} \
+		-Dipas=rpi/vc4,rpi/pisp \
+		-Dv4l2=true \
+		-Dlc-compliance=disabled \
+		-Dcam=disabled \
+		-Ddocumentation=enabled \
+		-Dgstreamer=enabled \
+		-Dlibunwind=disabled \
+		-Dpycamera=enabled \
+		-Dpipelines=${PIPELINES} \
+		-Dqcam=disabled \
+		-Dtest=false \
 		$(CONFFLAGS) \
 		$(empty)
 
 override_dh_auto_configure-indep:
 	dh_auto_configure -- \
 		-Ddocumentation=${DOCUMENTATION} \
+		--libexecdir=libexec/${DEB_HOST_MULTIARCH} \
+		-Dipas=rpi/vc4,rpi/pisp \
+		-Dv4l2=true \
+		-Dlc-compliance=disabled \
+		-Dcam=disabled \
+		-Ddocumentation=enabled \
+		-Dgstreamer=enabled \
+		-Dlibunwind=disabled \
+		-Dpycamera=enabled \
+		-Dpipelines=${PIPELINES} \
+		-Dqcam=disabled \
+		-Dtest=false \
 		$(CONFFLAGS) \
 		$(empty)
 
