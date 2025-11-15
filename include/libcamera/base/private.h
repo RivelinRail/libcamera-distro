@@ -17,6 +17,3 @@
  * which forms part of the libcamera API.
  */
 
-#ifndef LIBCAMERA_BASE_PRIVATE
-#error "Private headers must not be included in the libcamera API"
-#endif
