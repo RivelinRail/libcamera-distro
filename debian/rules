@@ -20,7 +20,7 @@ endif
 
 # Only enable rpi pipelines on arm
 ifneq (,$(filter $(DEB_HOST_ARCH), arm64 armhf))
-	PIPELINES=rpi/vc4,rpi/pisp,uvcvideo
+	PIPELINES=rpi/vc4,rpi/pisp
 else
 	PIPELINES=uvcvideo
 endif
@@ -31,12 +31,17 @@ endif
 override_dh_auto_configure:
 	dh_auto_configure -- \
                --libexecdir=libexec/${DEB_HOST_MULTIARCH} \
+	        -Dipas=rpi/vc4,rpi/pisp \
+	        -Dv4l2=true \
+		-Dlc-compliance=disabled \
+		-Dcam=disabled \
+		-Ddocumentation=enabled \
 		-Dgstreamer=enabled \
 		-Dlibunwind=disabled \
 		-Dpycamera=enabled \
 		-Dpipelines=${PIPELINES} \
-		-Dqcam=$(QCAM) \
-		-Dtest=true \
+		-Dqcam=disabled \
+		-Dtest=false \
 		$(CONFFLAGS) \
 		$(empty)
 
