@@ -85,7 +85,7 @@ uint32_t CamHelperImxVCCamera::gainCode(double gain) const
 	// Avoid negative underflow into uint32_t
 	if (mdb < 0)
 		mdb = 0;
-	LOG(CamHelperImxVCCamera, Debug) << "Gain:  " << gain 
+	LOG(CamHelperImxVCCamera, Debug) << "Gain:  " << gain
 				<< " GainCode: " << mdb << " dB";
 	return static_cast<uint32_t>(mdb);
 }
@@ -129,7 +129,7 @@ CamHelperImxVCCamera::getBlanking(libcamera::utils::Duration &exposure,
 			uint32_t frameLengthMin = minFrameDuration / lineLength;
 			uint32_t frameLengthMax = maxFrameDuration / lineLength;
 
-			LOG(CamHelperImxVCCamera, Debug) << "Width:  " << mode_.width 
+			LOG(CamHelperImxVCCamera, Debug) << "Width:  " << mode_.width
 			<< " Height: " << mode_.height << " LineLength: " << lineLength
 			<< " FrameLengthMin: " << frameLengthMin
 			<< " FrameLengthMax: " << frameLengthMax;
@@ -148,17 +148,18 @@ CamHelperImxVCCamera::getBlanking(libcamera::utils::Duration &exposure,
 			uint32_t vblank = frameLengthLines - mode_.height;
 			// recalc actual exposure
 			exposure = CamHelper::exposure(exposureLines, lineLength);
-			LOG(CamHelperImxVCCamera, Debug) << "FrameLengthLines: " << frameLengthLines 
+			LOG(CamHelperImxVCCamera, Debug) << "FrameLengthLines: " << frameLengthLines
 			<< " VBlank: " << vblank << " Exposure: " << exposure
 			<< " ExposureLines: " << exposureLines;
 			return { vblank, 0 };
 	}
-   
+
 }
 
 static CamHelper *create()
 {
+	LOG(CamHelperImxVCCamera, Debug) << "Creating CamHelper for vc_mipi_camera";
 	return new CamHelperImxVCCamera();
 }
 
-static RegisterCamHelper reg("vc_mipi_camera", &create);
+static RegisterCamHelper reg_vcmipi("vc_mipi_camera", &create);
