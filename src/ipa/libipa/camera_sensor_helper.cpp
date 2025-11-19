@@ -757,6 +757,16 @@ public:
 };
 REGISTER_CAMERA_SENSOR_HELPER("vd56g3", CameraSensorHelperVd56g3)
 
+class CameraSensorHelperVCMIPI : public CameraSensorHelper
+{
+public:
+	CameraSensorHelperVCMIPI()
+	{
+		gain_ = AnalogueGainExp{ 1.0, expGainDb(0.1) };
+	}
+};
+REGISTER_CAMERA_SENSOR_HELPER("vc_mipi_camera", CameraSensorHelperVCMIPI)
+
 #endif /* __DOXYGEN__ */
 
 } /* namespace ipa */
