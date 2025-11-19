@@ -1085,7 +1085,7 @@ bool CameraData::enumerateVideoDevices(MediaLink *link, const std::string &front
 int CameraData::loadPipelineConfiguration()
 {
 	config_ = {
-		.cameraTimeoutValue = 0,
+		.cameraTimeoutValue = 1000,
 	};
 
 	/* Initial configuration of the platform, in case no config file is present */
