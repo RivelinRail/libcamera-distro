@@ -23,20 +23,21 @@
 
 #include <libcamera/base/flags.h>
 #include <libcamera/base/log.h>
+#include <libcamera/base/utils.h>
 
 #include <libcamera/control_ids.h>
 #include <libcamera/controls.h>
 #include <libcamera/formats.h>
 #include <libcamera/pixel_format.h>
 #include <libcamera/property_ids.h>
-#include <libcamera/request.h>
 
 #include "libcamera/internal/camera.h"
 #include "libcamera/internal/dma_buf_allocator.h"
 #include "libcamera/internal/formats.h"
 #include "libcamera/internal/framebuffer.h"
 #include "libcamera/internal/pipeline_handler.h"
-#include "libcamera/internal/yaml_parser.h"
+#include "libcamera/internal/request.h"
+#include "libcamera/internal/value_node.h"
 
 #include "pipeline/virtual/config_parser.h"
 
@@ -56,13 +57,6 @@ uint64_t currentTimestamp()
 }
 
 } /* namespace */
-
-template<class... Ts>
-struct overloaded : Ts... {
-	using Ts::operator()...;
-};
-template<class... Ts>
-overloaded(Ts...) -> overloaded<Ts...>;
 
 class VirtualCameraConfiguration : public CameraConfiguration
 {
@@ -136,7 +130,7 @@ VirtualCameraData::VirtualCameraData(PipelineHandler *pipe,
 
 void VirtualCameraData::processRequest(Request *request)
 {
-	for (auto const &[stream, buffer] : request->buffers()) {
+	for (const auto &[stream, buffer] : request->buffers()) {
 		bool found = false;
 		/* map buffer and fill test patterns */
 		for (auto &streamConfig : streamConfigs_) {
@@ -366,7 +360,7 @@ int PipelineHandlerVirtual::queueRequestDevice([[maybe_unused]] Camera *camera,
 	VirtualCameraData *data = cameraData(camera);
 	const auto timestamp = currentTimestamp();
 
-	request->metadata().set(controls::SensorTimestamp, timestamp);
+	request->_d()->metadata().set(controls::SensorTimestamp, timestamp);
 	data->invokeMethod(&VirtualCameraData::processRequest,
 			   ConnectionTypeQueued, request);
 
@@ -428,7 +422,7 @@ bool PipelineHandlerVirtual::initFrameGenerator(Camera *camera)
 {
 	auto data = cameraData(camera);
 	auto &frame = data->config_.frame;
-	std::visit(overloaded{
+	std::visit(utils::overloaded{
 			   [&](TestPattern &testPattern) {
 				   for (auto &streamConfig : data->streamConfigs_) {
 					   if (testPattern == TestPattern::DiagonalLines)

@@ -37,21 +37,17 @@ int Awb::configure([[maybe_unused]] IPAContext &context,
 	 * for the first frame we will make no assumptions and leave the R/B
 	 * channels unmodified.
 	 */
-	context.activeState.awb.rGain = 1.0;
-	context.activeState.awb.bGain = 1.0;
+	context.activeState.awb.rGain = 1.0f;
+	context.activeState.awb.bGain = 1.0f;
 
 	return 0;
 }
 
-size_t Awb::fillGainsParamBlock(mali_c55_params_block block, IPAContext &context,
+void Awb::fillGainsParamBlock(MaliC55Params *params, IPAContext &context,
 				IPAFrameContext &frameContext)
 {
-	block.header->type = MALI_C55_PARAM_BLOCK_AWB_GAINS;
-	block.header->flags = MALI_C55_PARAM_BLOCK_FL_NONE;
-	block.header->size = sizeof(struct mali_c55_params_awb_gains);
-
-	double rGain = context.activeState.awb.rGain;
-	double bGain = context.activeState.awb.bGain;
+	UQ<4, 8> rGain = context.activeState.awb.rGain;
+	UQ<4, 8> bGain = context.activeState.awb.bGain;
 
 	/*
 	 * The gains here map as follows:
@@ -63,34 +59,32 @@ size_t Awb::fillGainsParamBlock(mali_c55_params_block block, IPAContext &context
 	 * This holds true regardless of the bayer order of the input data, as
 	 * the mapping is done internally in the ISP.
 	 */
-	block.awb_gains->gain00 = floatingToFixedPoint<4, 8, uint16_t, double>(rGain);
-	block.awb_gains->gain01 = floatingToFixedPoint<4, 8, uint16_t, double>(1.0);
-	block.awb_gains->gain10 = floatingToFixedPoint<4, 8, uint16_t, double>(1.0);
-	block.awb_gains->gain11 = floatingToFixedPoint<4, 8, uint16_t, double>(bGain);
+	auto block = params->block<MaliC55Blocks::AwbGains>();
+
+	block->gain00 = rGain.quantized();
+	block->gain01 = UQ<4, 8>(1.0f).quantized();
+	block->gain10 = UQ<4, 8>(1.0f).quantized();
+	block->gain11 = bGain.quantized();
 
 	frameContext.awb.rGain = rGain;
 	frameContext.awb.bGain = bGain;
-
-	return sizeof(struct mali_c55_params_awb_gains);
 }
 
-size_t Awb::fillConfigParamBlock(mali_c55_params_block block)
+void Awb::fillConfigParamBlock(MaliC55Params *params)
 {
-	block.header->type = MALI_C55_PARAM_BLOCK_AWB_CONFIG;
-	block.header->flags = MALI_C55_PARAM_BLOCK_FL_NONE;
-	block.header->size = sizeof(struct mali_c55_params_awb_config);
+	auto block = params->block<MaliC55Blocks::AwbConfig>();
 
 	/* Tap the stats after the purple fringe block */
-	block.awb_config->tap_point = MALI_C55_AWB_STATS_TAP_PF;
+	block->tap_point = MALI_C55_AWB_STATS_TAP_PF;
 
 	/* Get R/G and B/G ratios as statistics */
-	block.awb_config->stats_mode = MALI_C55_AWB_MODE_RGBG;
+	block->stats_mode = MALI_C55_AWB_MODE_RGBG;
 
 	/* Default white level */
-	block.awb_config->white_level = 1023;
+	block->white_level = 1023;
 
 	/* Default black level */
-	block.awb_config->black_level = 0;
+	block->black_level = 0;
 
 	/*
 	 * By default pixels are included who's colour ratios are bounded in a
@@ -104,40 +98,34 @@ size_t Awb::fillConfigParamBlock(mali_c55_params_block block)
 	 *
 	 * \todo should these perhaps be tunable?
 	 */
-	block.awb_config->cr_max = 511;
-	block.awb_config->cr_min = 64;
-	block.awb_config->cb_max = 511;
-	block.awb_config->cb_min = 64;
+	block->cr_max = 511;
+	block->cr_min = 64;
+	block->cb_max = 511;
+	block->cb_min = 64;
 
 	/* We use the full 15x15 zoning scheme */
-	block.awb_config->nodes_used_horiz = 15;
-	block.awb_config->nodes_used_vert = 15;
+	block->nodes_used_horiz = 15;
+	block->nodes_used_vert = 15;
 
 	/*
 	 * We set the trimming boundaries equivalent to the main boundaries. In
 	 * other words; no trimming.
 	 */
-	block.awb_config->cr_high = 511;
-	block.awb_config->cr_low = 64;
-	block.awb_config->cb_high = 511;
-	block.awb_config->cb_low = 64;
-
-	return sizeof(struct mali_c55_params_awb_config);
+	block->cr_high = 511;
+	block->cr_low = 64;
+	block->cb_high = 511;
+	block->cb_low = 64;
 }
 
 void Awb::prepare(IPAContext &context, const uint32_t frame,
-		  IPAFrameContext &frameContext, mali_c55_params_buffer *params)
+		  IPAFrameContext &frameContext, MaliC55Params *params)
 {
-	mali_c55_params_block block;
-	block.data = &params->data[params->total_size];
-
-	params->total_size += fillGainsParamBlock(block, context, frameContext);
+	fillGainsParamBlock(params, context, frameContext);
 
 	if (frame > 0)
 		return;
 
-	block.data = &params->data[params->total_size];
-	params->total_size += fillConfigParamBlock(block);
+	fillConfigParamBlock(params);
 }
 
 void Awb::process(IPAContext &context, const uint32_t frame,
@@ -152,18 +140,18 @@ void Awb::process(IPAContext &context, const uint32_t frame,
 	 * gain figures that we can apply to approximate a grey world.
 	 */
 	unsigned int counted_zones = 0;
-	double rgSum = 0, bgSum = 0;
+	float rgSum = 0, bgSum = 0;
 
 	for (unsigned int i = 0; i < 225; i++) {
 		if (!awb_ratios[i].num_pixels)
 			continue;
 
 		/*
-		 * The statistics are in Q4.8 format, so we convert to double
+		 * The statistics are in Q4.8 format, so we convert to float
 		 * here.
 		 */
-		rgSum += fixedToFloatingPoint<4, 8, double, uint16_t>(awb_ratios[i].avg_rg_gr);
-		bgSum += fixedToFloatingPoint<4, 8, double, uint16_t>(awb_ratios[i].avg_bg_br);
+		rgSum += UQ<4, 8>(awb_ratios[i].avg_rg_gr).value();
+		bgSum += UQ<4, 8>(awb_ratios[i].avg_bg_br).value();
 		counted_zones++;
 	}
 
@@ -171,7 +159,7 @@ void Awb::process(IPAContext &context, const uint32_t frame,
 	 * Sometimes the first frame's statistics have no valid pixels, in which
 	 * case we'll just assume a grey world until they say otherwise.
 	 */
-	double rgAvg, bgAvg;
+	float rgAvg, bgAvg;
 	if (!counted_zones) {
 		rgAvg = 1.0;
 		bgAvg = 1.0;
@@ -186,15 +174,15 @@ void Awb::process(IPAContext &context, const uint32_t frame,
 	 * figure by the gains that were applied when the statistics for this
 	 * frame were generated.
 	 */
-	double rRatio = rgAvg / frameContext.awb.rGain;
-	double bRatio = bgAvg / frameContext.awb.bGain;
+	float rRatio = rgAvg / frameContext.awb.rGain.value();
+	float bRatio = bgAvg / frameContext.awb.bGain.value();
 
 	/*
 	 * And then we can simply invert the ratio to find the gain we should
 	 * apply.
 	 */
-	double rGain = 1 / rRatio;
-	double bGain = 1 / bRatio;
+	float rGain = 1 / rRatio;
+	float bGain = 1 / bRatio;
 
 	/*
 	 * Running at full speed, this algorithm results in oscillations in the
@@ -202,16 +190,16 @@ void Awb::process(IPAContext &context, const uint32_t frame,
 	 * changes in gain, unless we're in the startup phase in which case we
 	 * want to fix the miscolouring as quickly as possible.
 	 */
-	double speed = frame < kNumStartupFrames ? 1.0 : 0.2;
-	rGain = speed * rGain + context.activeState.awb.rGain * (1.0 - speed);
-	bGain = speed * bGain + context.activeState.awb.bGain * (1.0 - speed);
+	float speed = frame < kNumStartupFrames ? 1.0f : 0.2f;
+	rGain = speed * rGain + context.activeState.awb.rGain.value() * (1.0f - speed);
+	bGain = speed * bGain + context.activeState.awb.bGain.value() * (1.0f - speed);
 
 	context.activeState.awb.rGain = rGain;
 	context.activeState.awb.bGain = bGain;
 
 	metadata.set(controls::ColourGains, {
-		static_cast<float>(frameContext.awb.rGain),
-		static_cast<float>(frameContext.awb.bGain),
+		frameContext.awb.rGain.value(),
+		frameContext.awb.bGain.value(),
 	});
 
 	LOG(MaliC55Awb, Debug) << "For frame number " << frame << ": "

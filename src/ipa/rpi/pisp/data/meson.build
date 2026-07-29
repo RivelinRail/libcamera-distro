@@ -31,8 +31,6 @@ conf_files = files([
     'vd55g1_mono.json',
     'vd56g3.json',
     'vd56g3_mono.json',
-    'vc_mipi_camera.json',
-    'vc_mipi_camera_mono.json',
 ])
 
 install_data(conf_files,

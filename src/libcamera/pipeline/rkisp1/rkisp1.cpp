@@ -26,7 +26,6 @@
 #include <libcamera/formats.h>
 #include <libcamera/framebuffer.h>
 #include <libcamera/property_ids.h>
-#include <libcamera/request.h>
 #include <libcamera/stream.h>
 #include <libcamera/transform.h>
 
@@ -41,10 +40,10 @@
 #include "libcamera/internal/delayed_controls.h"
 #include "libcamera/internal/device_enumerator.h"
 #include "libcamera/internal/framebuffer.h"
-#include "libcamera/internal/ipa_manager.h"
 #include "libcamera/internal/media_device.h"
 #include "libcamera/internal/media_pipeline.h"
 #include "libcamera/internal/pipeline_handler.h"
+#include "libcamera/internal/request.h"
 #include "libcamera/internal/v4l2_subdevice.h"
 #include "libcamera/internal/v4l2_videodevice.h"
 #include "libcamera/internal/yaml_parser.h"
@@ -86,6 +85,8 @@ public:
 	RkISP1FrameInfo *find(Request *request);
 
 private:
+	void recycleBuffers(const RkISP1FrameInfo &info);
+
 	PipelineHandlerRkISP1 *pipe_;
 	std::map<unsigned int, RkISP1FrameInfo> frameInfo_;
 };
@@ -316,12 +317,7 @@ int RkISP1Frames::destroy(unsigned int frame)
 	if (it == frameInfo_.end())
 		return -ENOENT;
 
-	auto &info = it->second;
-
-	pipe_->availableParamBuffers_.push(info.paramBuffer);
-	pipe_->availableStatBuffers_.push(info.statBuffer);
-	pipe_->availableMainPathBuffers_.push(info.mainPathBuffer);
-
+	recycleBuffers(it->second);
 	frameInfo_.erase(it);
 
 	return 0;
@@ -329,13 +325,22 @@ int RkISP1Frames::destroy(unsigned int frame)
 
 void RkISP1Frames::clear()
 {
-	for (const auto &[frame, info] : frameInfo_) {
-		pipe_->availableParamBuffers_.push(info.paramBuffer);
-		pipe_->availableStatBuffers_.push(info.statBuffer);
-		pipe_->availableMainPathBuffers_.push(info.mainPathBuffer);
-	}
+	for (const auto &[frame, info] : frameInfo_)
+		recycleBuffers(info);
 
 	frameInfo_.clear();
+}
+
+void RkISP1Frames::recycleBuffers(const RkISP1FrameInfo &info)
+{
+	if (info.paramBuffer)
+		pipe_->availableParamBuffers_.push(info.paramBuffer);
+
+	if (info.statBuffer)
+		pipe_->availableStatBuffers_.push(info.statBuffer);
+
+	if (info.mainPathBuffer && pipe_->cameraData(pipe_->activeCamera_)->usesDewarper_)
+		pipe_->availableMainPathBuffers_.push(info.mainPathBuffer);
 }
 
 RkISP1FrameInfo *RkISP1Frames::find(unsigned int frame)
@@ -389,7 +394,7 @@ const PipelineHandlerRkISP1 *RkISP1CameraData::pipe() const
 
 int RkISP1CameraData::loadIPA(unsigned int hwRevision, uint32_t supportedBlocks)
 {
-	ipa_ = IPAManager::createIPA<ipa::rkisp1::IPAProxyRkISP1>(pipe(), 1, 1);
+	ipa_ = pipe()->createIPA<ipa::rkisp1::IPAProxyRkISP1>(1, 1);
 	if (!ipa_)
 		return -ENOENT;
 
@@ -444,7 +449,7 @@ int RkISP1CameraData::loadTuningFile(const std::string &path)
 		return ret;
 	}
 
-	std::unique_ptr<libcamera::YamlObject> data = YamlParser::parse(file);
+	std::unique_ptr<ValueNode> data = YamlParser::parse(file);
 	if (!data)
 		return -EINVAL;
 
@@ -507,7 +512,7 @@ void RkISP1CameraData::metadataReady(unsigned int frame, const ControlList &meta
 	if (!info)
 		return;
 
-	info->request->metadata().merge(metadata);
+	info->request->_d()->metadata().merge(metadata);
 	info->metadataProcessed = true;
 
 	pipe()->tryCompleteRequest(info);
@@ -1037,7 +1042,7 @@ int PipelineHandlerRkISP1::configure(Camera *camera, CameraConfiguration *c)
 	data->properties_.set(properties::ScalerCropMaximum, sensorCrop);
 
 	std::map<unsigned int, IPAStream> streamConfig;
-	std::vector<std::reference_wrapper<StreamConfiguration>> outputCfgs;
+	std::vector<std::reference_wrapper<const StreamConfiguration>> outputCfgs;
 
 	for (const StreamConfiguration &cfg : *config) {
 		if (cfg.stream() == &data->mainPathStream_) {
@@ -1643,8 +1648,8 @@ void PipelineHandlerRkISP1::imageBufferReady(FrameBuffer *buffer)
 		 * \todo The sensor timestamp should be better estimated by connecting
 		 * to the V4L2Device::frameStart signal.
 		 */
-		request->metadata().set(controls::SensorTimestamp,
-					metadata.timestamp);
+		request->_d()->metadata().set(controls::SensorTimestamp,
+					      metadata.timestamp);
 
 		if (isRaw_) {
 			const ControlList &ctrls =
@@ -1686,7 +1691,7 @@ void PipelineHandlerRkISP1::imageBufferReady(FrameBuffer *buffer)
 		return;
 	}
 
-	dewarper_->populateMetadata(&data->mainPathStream_, request->metadata());
+	dewarper_->populateMetadata(&data->mainPathStream_, request->_d()->metadata());
 }
 
 void PipelineHandlerRkISP1::dewarpBufferReady(FrameBuffer *buffer)

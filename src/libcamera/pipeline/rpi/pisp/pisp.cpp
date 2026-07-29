@@ -743,7 +743,7 @@ public:
 	CameraConfiguration::Status
 	platformValidate(RPi::RPiCameraConfiguration *rpiConfig) const override;
 
-	int platformPipelineConfigure(const std::unique_ptr<YamlObject> &root) override;
+	int platformPipelineConfigure(const std::unique_ptr<ValueNode> &root) override;
 
 	void platformStart() override;
 	void platformStop() override;
@@ -864,7 +864,7 @@ private:
 		return static_cast<PiSPCameraData *>(camera->_d());
 	}
 
-	int prepareBuffers(Camera *camera) override;
+	int allocateBuffers(Camera *camera) override;
 	int platformRegister(std::unique_ptr<RPi::CameraData> &cameraData,
 			     std::shared_ptr<MediaDevice> cfe,
 			     std::shared_ptr<MediaDevice> isp) override;
@@ -958,7 +958,7 @@ bool PipelineHandlerPiSP::match(DeviceEnumerator *enumerator)
 	return false;
 }
 
-int PipelineHandlerPiSP::prepareBuffers(Camera *camera)
+int PipelineHandlerPiSP::allocateBuffers(Camera *camera)
 {
 	PiSPCameraData *data = cameraData(camera);
 	unsigned int numRawBuffers = 0;
@@ -972,7 +972,7 @@ int PipelineHandlerPiSP::prepareBuffers(Camera *camera)
 	}
 
 	/* Decide how many internal buffers to allocate. */
-	for (auto const stream : data->streams_) {
+	for (const auto stream : data->streams_) {
 		unsigned int numBuffers;
 		/*
 		 * For CFE, allocate a minimum of 4 buffers as we want
@@ -1021,7 +1021,7 @@ int PipelineHandlerPiSP::prepareBuffers(Camera *camera)
 		LOG(RPI, Debug) << "Preparing " << numBuffers
 				<< " buffers for stream " << stream->name();
 
-		ret = stream->prepareBuffers(numBuffers);
+		ret = stream->allocateBuffers(numBuffers);
 		if (ret < 0)
 			return ret;
 	}
@@ -1036,12 +1036,12 @@ int PipelineHandlerPiSP::prepareBuffers(Camera *camera)
 	pisp_image_format_config tdn;
 	data->be_->GetTdnOutputFormat(tdn);
 	unsigned int size = tdn.stride * tdn.height;
-	for (auto const &buffer : data->isp_[Isp::TdnOutput].getBuffers()) {
+	for (const auto &buffer : data->isp_[Isp::TdnOutput].getBuffers()) {
 		FrameBuffer *b = buffer.second.buffer;
 		b->_d()->metadata().planes()[0].bytesused = size;
 		data->tdnBuffers_.push_back(b);
 	}
-	for (auto const &buffer : data->isp_[Isp::StitchOutput].getBuffers()) {
+	for (const auto &buffer : data->isp_[Isp::StitchOutput].getBuffers()) {
 		FrameBuffer *b = buffer.second.buffer;
 		b->_d()->metadata().planes()[0].bytesused = size;
 		data->stitchBuffers_.push_back(b);
@@ -1333,7 +1333,7 @@ PiSPCameraData::platformValidate(RPi::RPiCameraConfiguration *rpiConfig) const
 	return status;
 }
 
-int PiSPCameraData::platformPipelineConfigure(const std::unique_ptr<YamlObject> &root)
+int PiSPCameraData::platformPipelineConfigure(const std::unique_ptr<ValueNode> &root)
 {
 	config_ = {
 		.numCfeConfigStatsBuffers = 12,
@@ -1358,7 +1358,7 @@ int PiSPCameraData::platformPipelineConfigure(const std::unique_ptr<YamlObject> 
 		return -EINVAL;
 	}
 
-	const YamlObject &phConfig = (*root)["pipeline_handler"];
+	const ValueNode &phConfig = (*root)["pipeline_handler"];
 	config_.numCfeConfigStatsBuffers =
 		phConfig["num_cfe_config_stats_buffers"].get<unsigned int>(config_.numCfeConfigStatsBuffers);
 	config_.numCfeConfigQueue =
@@ -2311,9 +2311,6 @@ void PiSPCameraData::tryRunPipeline()
 
 	fillRequestMetadata(job.sensorControls, request);
 
-	/* Set our state to say the pipeline is active. */
-	state_ = State::Busy;
-
 	unsigned int bayerId = cfe_[Cfe::Output0].getBufferId(job.buffers[&cfe_[Cfe::Output0]]);
 	unsigned int statsId = cfe_[Cfe::Stats].getBufferId(job.buffers[&cfe_[Cfe::Stats]]);
 	ASSERT(bayerId && statsId);
@@ -2330,7 +2327,13 @@ void PiSPCameraData::tryRunPipeline()
 	params.ipaContext = requestQueue_.front()->sequence();
 	params.delayContext = job.delayContext;
 	params.sensorControls = std::move(job.sensorControls);
-	params.requestControls = request->controls();
+	/* params.requestControls is set by handleControlLists. */
+
+	/* This sorts out synchronisation with ControlLists in earlier requests. */
+	handleControlLists(job.delayContext, params.requestControls);
+
+	/* Set our state to say the pipeline is active. */
+	state_ = State::Busy;
 
 	if (sensorMetadata_) {
 		unsigned int embeddedId =

@@ -24,7 +24,7 @@ BlackLevel::BlackLevel()
 }
 
 int BlackLevel::init([[maybe_unused]] IPAContext &context,
-		     const YamlObject &tuningData)
+		     const ValueNode &tuningData)
 {
 	auto blackLevel = tuningData["blackLevel"].get<int16_t>();
 	if (blackLevel.has_value()) {
@@ -45,6 +45,15 @@ int BlackLevel::configure(IPAContext &context,
 	context.activeState.blc.level =
 		context.configuration.black.level.value_or(16);
 	return 0;
+}
+
+void BlackLevel::prepare(IPAContext &context,
+			 [[maybe_unused]] const uint32_t frame,
+			 [[maybe_unused]] IPAFrameContext &frameContext,
+			 DebayerParams *params)
+{
+	/* Latch the blacklevel gain so GPUISP can apply. */
+	params->blackLevel = RGB<float>(context.activeState.blc.level / 255.0f);
 }
 
 void BlackLevel::process(IPAContext &context,

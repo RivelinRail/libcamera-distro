@@ -541,16 +541,6 @@ const CameraSensorProperties *CameraSensorProperties::get(const std::string &sen
 				.hblankDelay = 2
 			},
 		} },
-		{ "vc_mipi_camera", {
-			.unitCellSize = { 500, 500 },
-			.testPatternModes = {},
-			.sensorDelays = {
-				.exposureDelay = 2,
-				.gainDelay = 2,
-				.vblankDelay = 2,
-				.hblankDelay = 2
-			},
-		} },
 	};
 
 	const auto it = sensorProps.find(sensor);

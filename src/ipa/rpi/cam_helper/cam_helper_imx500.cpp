@@ -326,7 +326,6 @@ void CamHelperImx500::populateMetadata(const MdParser::RegisterMap &registers,
 
 static CamHelper *create()
 {
-	LOG(IPARPI, Debug) << "Creating CamHelper for imx500";
 	return new CamHelperImx500();
 }
 

@@ -16,6 +16,8 @@
 #include <vector>
 
 #include <libcamera/base/log.h>
+#include <libcamera/base/utils.h>
+
 #include <libcamera/control_ids.h>
 
 #include "colours.h"
@@ -143,7 +145,7 @@ void Interpolator<Pwl>::interpolate(const Pwl &a, const Pwl &b, Pwl &dest, doubl
  * \brief The currently selected mode
  */
 
-int AwbBayes::init(const YamlObject &tuningData)
+int AwbBayes::init(const ValueNode &tuningData)
 {
 	int ret = colourGainCurve_.readYaml(tuningData["colourGains"], "ct", "gains");
 	if (ret) {
@@ -188,7 +190,7 @@ int AwbBayes::init(const YamlObject &tuningData)
 	return 0;
 }
 
-int AwbBayes::readPriors(const YamlObject &tuningData)
+int AwbBayes::readPriors(const ValueNode &tuningData)
 {
 	const auto &priorsList = tuningData["priors"];
 	std::map<uint32_t, Pwl> priors;
@@ -211,9 +213,9 @@ int AwbBayes::readPriors(const YamlObject &tuningData)
 		}
 
 		std::vector<uint32_t> temperatures =
-			p["ct"].getList<uint32_t>().value_or(std::vector<uint32_t>{});
+			p["ct"].get<std::vector<uint32_t>>().value_or(utils::defopt);
 		std::vector<double> probabilities =
-			p["probability"].getList<double>().value_or(std::vector<double>{});
+			p["probability"].get<std::vector<double>>().value_or(utils::defopt);
 
 		if (temperatures.size() != probabilities.size()) {
 			LOG(Awb, Error)

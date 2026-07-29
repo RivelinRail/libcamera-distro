@@ -7,24 +7,30 @@
 
 #include "libcamera/internal/software_isp/software_isp.h"
 
-#include <cmath>
+#include <memory>
+#include <optional>
 #include <stdint.h>
+#include <string>
 #include <sys/mman.h>
 #include <sys/types.h>
 #include <unistd.h>
 
 #include <libcamera/base/log.h>
 #include <libcamera/base/thread.h>
+#include <libcamera/base/utils.h>
 
 #include <libcamera/controls.h>
 #include <libcamera/formats.h>
 #include <libcamera/stream.h>
 
+#include "libcamera/internal/bayer_format.h"
 #include "libcamera/internal/framebuffer.h"
-#include "libcamera/internal/ipa_manager.h"
 #include "libcamera/internal/software_isp/debayer_params.h"
 
 #include "debayer_cpu.h"
+#if HAVE_DEBAYER_EGL
+#include "debayer_egl.h"
+#endif
 
 /**
  * \file software_isp.cpp
@@ -80,23 +86,6 @@ SoftwareIsp::SoftwareIsp(PipelineHandler *pipe, const CameraSensor *sensor,
 		   DmaBufAllocator::DmaBufAllocatorFlag::SystemHeap |
 		   DmaBufAllocator::DmaBufAllocatorFlag::UDmaBuf)
 {
-	/*
-	 * debayerParams_ must be initialized because the initial value is used for
-	 * the first two frames, i.e. until stats processing starts providing its
-	 * own parameters.
-	 *
-	 * \todo This should be handled in the same place as the related
-	 * operations, in the IPA module.
-	 */
-	std::array<uint8_t, 256> gammaTable;
-	for (unsigned int i = 0; i < 256; i++)
-		gammaTable[i] = UINT8_MAX * std::pow(i / 256.0, 0.5);
-	for (unsigned int i = 0; i < DebayerParams::kRGBLookupSize; i++) {
-		debayerParams_.red[i] = gammaTable[i];
-		debayerParams_.green[i] = gammaTable[i];
-		debayerParams_.blue[i] = gammaTable[i];
-	}
-
 	if (!dmaHeap_.isValid()) {
 		LOG(SoftwareIsp, Error) << "Failed to create DmaBufAllocator object";
 		return;
@@ -108,19 +97,39 @@ SoftwareIsp::SoftwareIsp(PipelineHandler *pipe, const CameraSensor *sensor,
 		return;
 	}
 
-	auto stats = std::make_unique<SwStatsCpu>();
+	const CameraManager &cm = *pipe->cameraManager();
+
+	auto stats = std::make_unique<SwStatsCpu>(cm);
 	if (!stats->isValid()) {
 		LOG(SoftwareIsp, Error) << "Failed to create SwStatsCpu object";
 		return;
 	}
 	stats->statsReady.connect(this, &SoftwareIsp::statsReady);
 
-	const GlobalConfiguration &configuration = pipe->cameraManager()->_d()->configuration();
-	debayer_ = std::make_unique<DebayerCpu>(std::move(stats), configuration);
+#if HAVE_DEBAYER_EGL
+	const GlobalConfiguration &configuration = cm._d()->configuration();
+	std::optional<std::string> softISPMode = configuration.option<std::string>({ "software_isp", "mode" });
+	if (softISPMode) {
+		if (softISPMode != "gpu" && softISPMode != "cpu") {
+			LOG(SoftwareIsp, Error)
+				<< "Invalid software ISP mode \""
+				<< softISPMode.value()
+				<< "\", must be \"cpu\" or \"gpu\"";
+			return;
+		}
+	}
+
+	if (!softISPMode || softISPMode == "gpu")
+		debayer_ = std::make_unique<DebayerEGL>(std::move(stats), cm);
+
+#endif
+	if (!debayer_)
+		debayer_ = std::make_unique<DebayerCpu>(std::move(stats), cm);
+
 	debayer_->inputBufferReady.connect(this, &SoftwareIsp::inputReady);
 	debayer_->outputBufferReady.connect(this, &SoftwareIsp::outputReady);
 
-	ipa_ = IPAManager::createIPA<ipa::soft::IPAProxySoft>(pipe, 0, 0);
+	ipa_ = pipe->createIPA<ipa::soft::IPAProxySoft>(0, 0);
 	if (!ipa_) {
 		LOG(SoftwareIsp, Error)
 			<< "Creating IPA for software ISP failed";
@@ -255,7 +264,7 @@ SoftwareIsp::strideAndFrameSize(const PixelFormat &outputFormat, const Size &siz
  * \return 0 on success, a negative errno on failure
  */
 int SoftwareIsp::configure(const StreamConfiguration &inputCfg,
-			   const std::vector<std::reference_wrapper<StreamConfiguration>> &outputCfgs,
+			   const std::vector<std::reference_wrapper<const StreamConfiguration>> &outputCfgs,
 			   const ipa::soft::IPAConfigInfo &configInfo)
 {
 	ASSERT(ipa_ && debayer_);
@@ -264,7 +273,16 @@ int SoftwareIsp::configure(const StreamConfiguration &inputCfg,
 	if (ret < 0)
 		return ret;
 
-	return debayer_->configure(inputCfg, outputCfgs, ccmEnabled_);
+	ret = debayer_->configure(inputCfg, outputCfgs, ccmEnabled_);
+	if (ret < 0)
+		return ret;
+
+	LOG(SoftwareIsp, Info)
+		<< "Input " << inputCfg.size
+		<< "-" << BayerFormat::fromPixelFormat(inputCfg.pixelFormat)
+		<< " stride " << inputCfg.stride;
+
+	return 0;
 }
 
 /**
@@ -326,8 +344,7 @@ int SoftwareIsp::queueBuffers(uint32_t frame, FrameBuffer *input,
 
 	queuedInputBuffers_.push_back(input);
 
-	for (auto iter = outputs.begin(); iter != outputs.end(); iter++) {
-		FrameBuffer *const buffer = iter->second;
+	for (const auto &[stream, buffer] : outputs) {
 		queuedOutputBuffers_.push_back(buffer);
 		process(frame, input, buffer);
 	}
@@ -346,7 +363,9 @@ int SoftwareIsp::start()
 		return ret;
 
 	ispWorkerThread_.start();
-	return 0;
+
+	return debayer_->invokeMethod(&Debayer::start,
+				      ConnectionTypeBlocking);
 }
 
 /**
@@ -357,9 +376,11 @@ int SoftwareIsp::start()
  */
 void SoftwareIsp::stop()
 {
+	debayer_->invokeMethod(&Debayer::stop,
+			       ConnectionTypeBlocking);
+
 	ispWorkerThread_.exit();
 	ispWorkerThread_.wait();
-	ispWorkerThread_.removeMessages(debayer_.get());
 
 	Thread::current()->dispatchMessages(Message::Type::InvokeMessage, this);
 
@@ -389,7 +410,7 @@ void SoftwareIsp::stop()
 void SoftwareIsp::process(uint32_t frame, FrameBuffer *input, FrameBuffer *output)
 {
 	ipa_->computeParams(frame);
-	debayer_->invokeMethod(&DebayerCpu::process,
+	debayer_->invokeMethod(&Debayer::process,
 			       ConnectionTypeQueued, frame, input, output, debayerParams_);
 }
 

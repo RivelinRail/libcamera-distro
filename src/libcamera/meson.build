@@ -57,6 +57,7 @@ libcamera_internal_sources = files([
     'v4l2_request.cpp',
     'v4l2_subdevice.cpp',
     'v4l2_videodevice.cpp',
+    'value_node.cpp',
     'vector.cpp',
     'yaml_parser.cpp',
 ])
@@ -76,6 +77,7 @@ subdir('ipa')
 subdir('pipeline')
 subdir('proxy')
 subdir('sensor')
+subdir('shaders')
 subdir('software_isp')
 
 libdl = dependency('dl')
@@ -181,6 +183,16 @@ libcamera_deps += [
     libudev,
     libyaml,
 ]
+
+# Generate headers from shaders
+libcamera_shader_headers = custom_target(
+    'gen-shader-headers',
+    input : [shader_files],
+    output : 'glsl_shaders.h',
+    command : [gen_shader_headers, meson.project_source_root(), '@OUTPUT@', '@INPUT@'],
+)
+
+libcamera_internal_headers += libcamera_shader_headers
 
 # We add '/' to the build_rpath as a 'safe' path to act as a boolean flag.
 # The build_rpath is stripped at install time by meson, so we determine at

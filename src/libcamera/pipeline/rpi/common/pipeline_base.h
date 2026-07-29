@@ -15,7 +15,6 @@
 #include <vector>
 
 #include <libcamera/controls.h>
-#include <libcamera/request.h>
 
 #include "libcamera/internal/bayer_format.h"
 #include "libcamera/internal/camera.h"
@@ -25,8 +24,9 @@
 #include "libcamera/internal/media_device.h"
 #include "libcamera/internal/media_object.h"
 #include "libcamera/internal/pipeline_handler.h"
+#include "libcamera/internal/request.h"
 #include "libcamera/internal/v4l2_videodevice.h"
-#include "libcamera/internal/yaml_parser.h"
+#include "libcamera/internal/value_node.h"
 
 #include <libcamera/ipa/raspberrypi_ipa_interface.h>
 #include <libcamera/ipa/raspberrypi_ipa_proxy.h>
@@ -96,7 +96,7 @@ public:
 	virtual V4L2VideoDevice::Formats rawFormats() const = 0;
 	virtual V4L2VideoDevice *frontendDevice() = 0;
 
-	virtual int platformPipelineConfigure(const std::unique_ptr<YamlObject> &root) = 0;
+	virtual int platformPipelineConfigure(const std::unique_ptr<ValueNode> &root) = 0;
 
 	std::unique_ptr<ipa::RPi::IPAProxyRPi> ipa_;
 
@@ -168,16 +168,30 @@ public:
 		 * Override the camera timeout value calculated by the IPA based
 		 * on frame durations.
 		 */
-		int cameraTimeoutValue;
+		unsigned int cameraTimeoutValue;
+		/*
+		 * The minimum frame duration between the IPA's calls to the
+		 * algorithms themselves (in microseconds).
+		 */
+		float controllerMinFrameDurationUs;
 	};
 
 	Config config_;
 
 	ClockRecovery wallClockRecovery_;
 
+	struct ImmediateControlsEntry {
+		uint64_t controlListId;
+		ControlList controls;
+	};
+	std::queue<ImmediateControlsEntry> immediateControls_;
+
 protected:
 	void fillRequestMetadata(const ControlList &bufferControls,
 				 Request *request);
+
+	void handleControlLists(uint32_t delayContext,
+				ControlList &paramControls);
 
 	virtual void tryRunPipeline() = 0;
 
@@ -242,7 +256,7 @@ private:
 	}
 
 	int queueAllBuffers(Camera *camera);
-	virtual int prepareBuffers(Camera *camera) = 0;
+	virtual int allocateBuffers(Camera *camera) = 0;
 };
 
 class RPiCameraConfiguration final : public CameraConfiguration

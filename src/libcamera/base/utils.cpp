@@ -24,6 +24,36 @@ namespace libcamera {
 namespace utils {
 
 /**
+ * \struct overloaded
+ * \brief Helper type for type-matching std::visit() implementations
+ * \tparam Ts... Template arguments pack of visitors
+ *
+ * Expand the template argument pack \a Ts... to provide overloaded \a
+ * operator() to support type-matching implementations of the visitor design
+ * pattern using std::visit().
+ *
+ * An example is provided by the C++ standard library documentation in the form
+ * of:
+ *
+ * \code{.cpp}
+ * template<class... Ts> struct overloaded : Ts... { using Ts::operator()...; };
+ * template<class... Ts> overloaded(Ts...) -> overloaded<Ts...>;
+ *
+ * using var_t = std::variant<int, long, double, std::string>;
+ * std::vector<var_t> vec = {10, 15l, 1.5, "hello"};
+ *
+ * for (auto& v: vec) {
+ * 	std::visit(overloaded {
+ * 		[](auto arg) { std::cout << arg << ' '; },
+ * 		[](double arg) { std::cout << std::fixed << arg << ' '; },
+ * 		[](const std::string& arg) { std::cout << std::quoted(arg) << ' '; },
+ * 	}, v);
+ * \endcode
+ *
+ * Use this helper to implement type-matching visitors using std::visit().
+ */
+
+/**
  * \brief Strip the directory prefix from the path
  * \param[in] path The path to process
  *
@@ -655,14 +685,27 @@ void ScopeExitActions::release()
 	actions_.clear();
 }
 
-} /* namespace utils */
+/**
+ * \var defopt
+ * \brief Constant used with std::optional::value_or() to create a
+ * default-constructed object
+ *
+ * The std::optional<T>::value_or(U &&default_value) function returns the
+ * contained value if available, or \a default_value if the std::optional has no
+ * value. If the desired default value is a default-constructed T, the obvious
+ * option is to call std::optional<T>::value_or(T{}). This approach however
+ * constructs the \a default_value T{} even if the std::optional instance has a
+ * value, which impacts efficiency.
+ *
+ * The defopt variable solves this issue by providing a value that can be passed
+ * to std::optional<T>::value_or() and get implicitly converted to a
+ * default-constructed T.
+ */
 
 #ifndef __DOXYGEN__
-template<class CharT, class Traits>
-std::basic_ostream<CharT, Traits> &operator<<(std::basic_ostream<CharT, Traits> &os,
-					      const utils::Duration &d)
+std::ostream &operator<<(std::ostream &os, const Duration &d)
 {
-	std::basic_ostringstream<CharT, Traits> s;
+	std::ostringstream s;
 
 	s.flags(os.flags());
 	s.imbue(os.getloc());
@@ -671,11 +714,8 @@ std::basic_ostream<CharT, Traits> &operator<<(std::basic_ostream<CharT, Traits> 
 	s << d.get<std::micro>() << "us";
 	return os << s.str();
 }
-
-template
-std::basic_ostream<char, std::char_traits<char>> &
-operator<< <char, std::char_traits<char>>(std::basic_ostream<char, std::char_traits<char>> &os,
-					  const utils::Duration &d);
 #endif
+
+} /* namespace utils */
 
 } /* namespace libcamera */

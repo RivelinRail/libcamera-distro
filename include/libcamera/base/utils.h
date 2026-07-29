@@ -37,6 +37,15 @@ namespace libcamera {
 
 namespace utils {
 
+template<class... Ts>
+struct overloaded : Ts... {
+	using Ts::operator()...;
+};
+#ifndef __DOXYGEN__
+template<class... Ts>
+overloaded(Ts...) -> overloaded<Ts...>;
+#endif
+
 const char *basename(const char *path);
 
 char *secure_getenv(const char *name);
@@ -110,14 +119,13 @@ std::string join(const Container &items, const std::string &sep, UnaryOp op)
 	std::ostringstream ss;
 	bool first = true;
 
-	for (typename Container::const_iterator it = std::begin(items);
-	     it != std::end(items); ++it) {
+	for (const auto &item : items) {
 		if (!first)
 			ss << sep;
 		else
 			first = false;
 
-		ss << op(*it);
+		ss << op(item);
 	}
 
 	return ss.str();
@@ -129,14 +137,13 @@ std::string join(const Container &items, const std::string &sep)
 	std::ostringstream ss;
 	bool first = true;
 
-	for (typename Container::const_iterator it = std::begin(items);
-	     it != std::end(items); ++it) {
+	for (const auto &item : items) {
 		if (!first)
 			ss << sep;
 		else
 			first = false;
 
-		ss << *it;
+		ss << item;
 	}
 
 	return ss.str();
@@ -342,7 +349,7 @@ public:
 	template<typename Period>
 	double get() const
 	{
-		auto const c = std::chrono::duration_cast<std::chrono::duration<double, Period>>(*this);
+		const auto c = std::chrono::duration_cast<std::chrono::duration<double, Period>>(*this);
 		return c.count();
 	}
 
@@ -423,12 +430,25 @@ scope_exit(EF) -> scope_exit<EF>;
 
 #endif /* __DOXYGEN__ */
 
-} /* namespace utils */
+namespace details {
+
+struct defopt_t {
+	template<typename T>
+	constexpr operator T() const
+	{
+		static_assert(std::is_default_constructible_v<T>);
+		return T{};
+	}
+};
+
+} /* namespace details */
+
+constexpr details::defopt_t defopt;
 
 #ifndef __DOXYGEN__
-template<class CharT, class Traits>
-std::basic_ostream<CharT, Traits> &operator<<(std::basic_ostream<CharT, Traits> &os,
-					      const utils::Duration &d);
+std::ostream &operator<<(std::ostream &os, const Duration &d);
 #endif
+
+} /* namespace utils */
 
 } /* namespace libcamera */

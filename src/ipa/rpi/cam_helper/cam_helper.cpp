@@ -46,7 +46,6 @@ CamHelper *CamHelper::create(std::string const &camName)
 			return p.second();
 	}
 
-	LOG(IPARPI, Error) << "No CamHelper found for camera " << camName;
 	return nullptr;
 }
 
@@ -254,6 +253,5 @@ void CamHelper::populateMetadata([[maybe_unused]] const MdParser::RegisterMap &r
 RegisterCamHelper::RegisterCamHelper(char const *camName,
 				     CamHelperCreateFunc createFunc)
 {
-	LOG(IPARPI, Debug) << "Registering CamHelper for camera " << camName;
 	camHelpers()[std::string(camName)] = createFunc;
 }

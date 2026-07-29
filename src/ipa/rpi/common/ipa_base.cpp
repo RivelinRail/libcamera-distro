@@ -48,14 +48,6 @@ constexpr Duration defaultExposureTime = 20.0ms;
 constexpr Duration defaultMinFrameDuration = 1.0s / 30.0;
 constexpr Duration defaultMaxFrameDuration = 250.0s;
 
-/*
- * Determine the minimum allowable inter-frame duration to run the controller
- * algorithms. If the pipeline handler provider frames at a rate higher than this,
- * we rate-limit the controller Prepare() and Process() calls to lower than or
- * equal to this rate.
- */
-constexpr Duration controllerMinFrameDuration = 1.0s / 30.0;
-
 /* List of controls handled by the Raspberry Pi IPA */
 const ControlInfoMap::Map ipaControls{
 	/* \todo Move this to the Camera class */
@@ -86,13 +78,18 @@ const ControlInfoMap::Map ipaControls{
 	{ &controls::Sharpness, ControlInfo(0.0f, 16.0f, 1.0f) },
 	{ &controls::ScalerCrop, ControlInfo(Rectangle{}, Rectangle(65535, 65535, 65535, 65535), Rectangle{}) },
 	{ &controls::FrameDurationLimits,
-	  ControlInfo(INT64_C(33333), INT64_C(120000),
-		      static_cast<int64_t>(defaultMinFrameDuration.get<std::micro>())) },
-	{ &controls::rpi::SyncMode, ControlInfo(controls::rpi::SyncModeValues) },
-	{ &controls::rpi::SyncFrames, ControlInfo(1, 1000000, 100) },
+	  ControlInfo(static_cast<int64_t>(defaultMinFrameDuration.get<std::micro>()),
+		      static_cast<int64_t>(defaultMaxFrameDuration.get<std::micro>()),
+		      Span<const int64_t, 2>{ { static_cast<int64_t>(defaultMinFrameDuration.get<std::micro>()),
+						static_cast<int64_t>(defaultMinFrameDuration.get<std::micro>()) } }) },
 	{ &controls::draft::NoiseReductionMode, ControlInfo(controls::draft::NoiseReductionModeValues) },
 	{ &controls::rpi::StatsOutputEnable, ControlInfo(false, true, false) },
 	{ &controls::rpi::CnnEnableInputTensor, ControlInfo(false, true, false) },
+	{ &controls::rpi::SyncMode,
+	  ControlInfo({ { ControlValue(controls::rpi::SyncModeOff),
+			  ControlValue(controls::rpi::SyncModeClient) } },
+		      ControlValue(controls::rpi::SyncModeOff)) },
+	{ &controls::rpi::SyncFrames, ControlInfo(100, 100000, 1000) },
 };
 
 /* IPA controls handled conditionally, if the sensor is not mono */
@@ -149,7 +146,6 @@ int32_t IpaBase::init(const IPASettings &settings, const InitParams &params, Ini
 	 * that the kernel driver doesn't. We only do this the first time; we don't need
 	 * to re-parse the metadata after a simple mode-switch for no reason.
 	 */
-	LOG(IPARPI, Debug) << "Creating IPABase CamHelper for " << settings.sensorModel;
 	helper_ = std::unique_ptr<RPiController::CamHelper>(RPiController::CamHelper::create(settings.sensorModel));
 	if (!helper_) {
 		LOG(IPARPI, Error) << "Could not create camera helper for "
@@ -189,6 +185,14 @@ int32_t IpaBase::init(const IPASettings &settings, const InitParams &params, Ini
 		ctrlMap.merge(ControlInfoMap::Map(ipaColourControls));
 
 	result->controlInfo = ControlInfoMap(std::move(ctrlMap), controls::controls);
+
+	/*
+	 * This determines the minimum allowable inter-frame duration to run the
+	 * controller algorithms. If the pipeline handler provider frames at a
+	 * rate higher than this, we rate-limit the controller Prepare() and
+	 * Process() calls to lower than or equal to this rate.
+	 */
+	controllerMinFrameDuration_ = params.controllerMinFrameDurationUs * 1us;
 
 	return platformInit(params, result);
 }
@@ -436,6 +440,15 @@ void IpaBase::prepareIsp(const PrepareParams &params)
 	fillDeviceStatus(params.sensorControls, ipaContext);
 	fillSyncParams(params, ipaContext);
 
+	/*
+	 * When there are controls, it's important that we don't skip running the
+	 * IPAs, as that can mess with synchronisation. Crucially though, we need
+	 * to know whether there were controls when this comes back as the
+	 * _delayed_ metadata, hence why we flag this in the metadata itself.
+	 */
+	if (!params.requestControls.empty())
+		rpiMetadata.set("ipa.request_controls", true);
+
 	if (params.buffers.embedded) {
 		/*
 		 * Pipeline handler has supplied us with an embedded data buffer,
@@ -456,7 +469,7 @@ void IpaBase::prepareIsp(const PrepareParams &params)
 	 */
 	AgcStatus agcStatus;
 	bool hdrChange = false;
-	RPiController::Metadata &delayedMetadata = rpiMetadata_[params.delayContext];
+	RPiController::Metadata &delayedMetadata = rpiMetadata_[params.delayContext % rpiMetadata_.size()];
 	if (!delayedMetadata.get<AgcStatus>("agc.status", agcStatus)) {
 		rpiMetadata.set("agc.delayed_status", agcStatus);
 		hdrChange = agcStatus.hdr.mode != hdrStatus_.mode;
@@ -469,10 +482,14 @@ void IpaBase::prepareIsp(const PrepareParams &params)
 	 */
 	helper_->prepare(embeddedBuffer, rpiMetadata);
 
+	bool delayedRequestControls = false;
+	delayedMetadata.get<bool>("ipa.request_controls", delayedRequestControls);
+
 	/* Allow a 10% margin on the comparison below. */
 	Duration delta = (frameTimestamp - lastRunTimestamp_) * 1.0ns;
-	if (lastRunTimestamp_ && frameCount_ > invalidCount_ &&
-	    delta < controllerMinFrameDuration * 0.9 && !hdrChange) {
+	if (!delayedRequestControls && params.requestControls.empty() &&
+	    lastRunTimestamp_ && frameCount_ > invalidCount_ &&
+	    delta < controllerMinFrameDuration_ * 0.9 && !hdrChange) {
 		/*
 		 * Ensure we merge the previous frame's metadata with the current
 		 * frame. This will not overwrite exposure/gain values for the
@@ -554,7 +571,7 @@ void IpaBase::processStats(const ProcessParams &params)
 		ControlList ctrls(sensorCtrls_);
 		applyAGC(&agcStatus, ctrls, offset);
 		rpiMetadata.set("agc.status", agcStatus);
-		setDelayedControls.emit(ctrls, ipaContext);
+		setDelayedControls.emit(ctrls, params.ipaContext);
 		setCameraTimeoutValue();
 	}
 
@@ -623,7 +640,7 @@ void IpaBase::setMode(const IPACameraSensorInfo &sensorInfo)
 			mode_.minLineLength = adjustedLineLength;
 		} else {
 			LOG(IPARPI, Error)
-				<< "Sensor minimum line length of " << pixelTime * mode_.width
+				<< "Sensor minimum line length of " << Duration(pixelTime * mode_.width)
 				<< " (" << 1us / pixelTime << " MPix/s)"
 				<< " is below the minimum allowable ISP limit of "
 				<< adjustedLineLength
@@ -944,7 +961,7 @@ void IpaBase::applyControls(const ControlList &controls)
 		} while (false);
 
 	/* Iterate over controls */
-	for (auto const &ctrl : controls) {
+	for (const auto &ctrl : controls) {
 		LOG(IPARPI, Debug) << "Request ctrl: "
 				   << controls::controls.at(ctrl.first)->name()
 				   << " = " << ctrl.second.toString();
@@ -971,8 +988,6 @@ void IpaBase::applyControls(const ControlList &controls)
 
 			/* The control provides units of microseconds. */
 			agc->setFixedExposureTime(0, ctrl.second.get<int32_t>() * 1.0us);
-
-			libcameraMetadata_.set(controls::ExposureTime, ctrl.second.get<int32_t>());
 			break;
 		}
 
@@ -996,9 +1011,6 @@ void IpaBase::applyControls(const ControlList &controls)
 				break;
 
 			agc->setFixedGain(0, ctrl.second.get<float>());
-
-			libcameraMetadata_.set(controls::AnalogueGain,
-					       ctrl.second.get<float>());
 			break;
 		}
 
@@ -1693,7 +1705,7 @@ void IpaBase::reportMetadata(unsigned int ipaContext)
 	const HdrStatus &hdrStatus = agcStatus ? agcStatus->hdr : hdrStatus_;
 	if (!hdrStatus.mode.empty() && hdrStatus.mode != "Off") {
 		int32_t hdrMode = controls::HdrModeOff;
-		for (auto const &[mode, name] : HdrModeTable) {
+		for (const auto &[mode, name] : HdrModeTable) {
 			if (hdrStatus.mode == name) {
 				hdrMode = mode;
 				break;

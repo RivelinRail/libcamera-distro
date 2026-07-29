@@ -19,7 +19,7 @@
 #include <libcamera/base/span.h>
 
 #include "libcamera/internal/matrix.h"
-#include "libcamera/internal/yaml_parser.h"
+#include "libcamera/internal/value_node.h"
 
 namespace libcamera {
 
@@ -111,6 +111,13 @@ public:
 		return apply(*this, scalar, std::divides<>{});
 	}
 
+	constexpr Vector operator>>(unsigned int shift) const
+	{
+		static_assert(std::is_integral_v<T>,
+			      "Vector::operator>> requires an integer element type");
+		return apply(*this, shift, [](T a, unsigned int b) { return a >> b; });
+	}
+
 	Vector &operator+=(const Vector &other)
 	{
 		return apply(other, [](T a, T b) { return a + b; });
@@ -149,6 +156,13 @@ public:
 	Vector &operator/=(T scalar)
 	{
 		return apply(scalar, [](T a, T b) { return a / b; });
+	}
+
+	Vector &operator>>=(unsigned int shift)
+	{
+		static_assert(std::is_integral_v<T>,
+			      "Vector::operator>>= requires an integer element type");
+		return apply(shift, [](T a, unsigned int b) { return a >> b; });
 	}
 
 	constexpr Vector min(const Vector &other) const
@@ -260,8 +274,8 @@ private:
 		return result;
 	}
 
-	template<class BinaryOp>
-	static constexpr Vector apply(const Vector &lhs, T rhs, BinaryOp op)
+	template<class U, class BinaryOp>
+	static constexpr Vector apply(const Vector &lhs, U rhs, BinaryOp op)
 	{
 		Vector result;
 		std::transform(lhs.data_.begin(), lhs.data_.end(),
@@ -281,8 +295,8 @@ private:
 		return *this;
 	}
 
-	template<class BinaryOp>
-	Vector &apply(T scalar, BinaryOp op)
+	template<class U, class BinaryOp>
+	Vector &apply(U scalar, BinaryOp op)
 	{
 		std::for_each(data_.begin(), data_.end(),
 			      [&op, scalar](T &v) { v = op(v, scalar); });
@@ -329,7 +343,7 @@ bool operator!=(const Vector<T, Rows> &lhs, const Vector<T, Rows> &rhs)
 }
 
 #ifndef __DOXYGEN__
-bool vectorValidateYaml(const YamlObject &obj, unsigned int size);
+bool vectorValidateYaml(const ValueNode &obj, unsigned int size);
 #endif /* __DOXYGEN__ */
 
 #ifndef __DOXYGEN__
@@ -347,8 +361,8 @@ std::ostream &operator<<(std::ostream &out, const Vector<T, Rows> &v)
 }
 
 template<typename T, unsigned int Rows>
-struct YamlObject::Getter<Vector<T, Rows>> {
-	std::optional<Vector<T, Rows>> get(const YamlObject &obj) const
+struct ValueNode::Accessor<Vector<T, Rows>> {
+	std::optional<Vector<T, Rows>> get(const ValueNode &obj) const
 	{
 		if (!vectorValidateYaml(obj, Rows))
 			return std::nullopt;
@@ -356,7 +370,7 @@ struct YamlObject::Getter<Vector<T, Rows>> {
 		Vector<T, Rows> vector;
 
 		unsigned int i = 0;
-		for (const YamlObject &entry : obj.asList()) {
+		for (const ValueNode &entry : obj.asList()) {
 			const auto value = entry.get<T>();
 			if (!value)
 				return std::nullopt;

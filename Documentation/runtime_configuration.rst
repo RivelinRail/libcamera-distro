@@ -51,6 +51,8 @@ file structure:
       measure:
         skip: # non-negative integer, frames to skip initially
         number: # non-negative integer, frames to measure
+      mode: # cpu/gpu
+      threads: # integer >= 1, number of render threads to use, default 2
 
 Configuration file example
 --------------------------
@@ -84,9 +86,11 @@ Configuration file example
        measure:
          skip: 50
          number: 30
+       mode: gpu
+       threads: 2
 
-List of variables and configuration options
--------------------------------------------
+List of environment variables and configuration options
+-------------------------------------------------------
 
 LIBCAMERA_LOG_FILE
    The custom destination for log output.
@@ -98,8 +102,8 @@ LIBCAMERA_LOG_LEVELS
 
    Example value: ``*:DEBUG``
 
-LIBCAMERA_LOG_NO_COLOR
-   Disable coloring of log messages (`more <Notes about debugging_>`__).
+LIBCAMERA_LOG_COLOR
+   Control the coloring of log messages (`more <Notes about debugging_>`__).
 
 LIBCAMERA_IPA_CONFIG_PATH, ipa.config_paths
    Define custom search locations for IPA configurations (`more <IPA configuration_>`__).
@@ -139,6 +143,13 @@ LIBCAMERA_<NAME>_TUNING_FILE
 
    Example value: ``/usr/local/share/libcamera/ipa/rpi/vc4/custom_sensor.json``
 
+LIBCAMERA_SOFTISP_MODE, software_isp.mode
+   Select if the software ISP should use GPU or CPU image processsing,
+   one of ``cpu`` or ``gpu``. When set to ``gpu`` and EGL is not available
+   the software ISP will automatically fall back to the CPU.
+
+   Example value: ``gpu``
+
 pipelines.simple.supported_devices.driver, pipelines.simple.supported_devices.software_isp
    Override whether software ISP is enabled for the given driver.
 
@@ -167,6 +178,12 @@ software_isp.measure.skip, software_isp.measure.number
 
    Example `number` value: ``30``
 
+software_isp.threads
+   Number of render threads the software ISP uses when using the CPU.
+   This must be between 1 and 8 and the default is 2.
+
+   Example value: ``2``
+
 Further details
 ---------------
 
@@ -174,12 +191,14 @@ Notes about debugging
 ~~~~~~~~~~~~~~~~~~~~~
 
 The environment variables ``LIBCAMERA_LOG_FILE``, ``LIBCAMERA_LOG_LEVELS`` and
-``LIBCAMERA_LOG_NO_COLOR`` are used to modify the default configuration of the
+``LIBCAMERA_LOG_COLOR`` are used to modify the default configuration of the
 libcamera logger.
 
 By default, libcamera logs all messages to the standard error (std::cerr).
-Messages are colored by default depending on the log level. Coloring can be
-disabled by setting the ``LIBCAMERA_LOG_NO_COLOR`` environment variable.
+The ``LIBCAMERA_LOG_COLOR`` environment variable can be used to control whether
+the messages will be colored or not. The possible values are: ``auto``, ``yes``,
+and ``no``. The default value is ``auto``, which enables coloring if the standard
+error is connected to a TTY.
 
 The default log destination can also be directed to a file by setting the
 ``LIBCAMERA_LOG_FILE`` environment variable to the log file name. This also

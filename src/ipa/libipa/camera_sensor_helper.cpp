@@ -672,6 +672,8 @@ class CameraSensorHelperOv2740 : public CameraSensorHelper
 public:
 	CameraSensorHelperOv2740()
 	{
+		/* From Linux kernel driver: 0x40 at 10bits. */
+		blackLevel_ = 4096;
 		gain_ = AnalogueGainLinear{ 1, 0, 0, 128 };
 	}
 };
@@ -812,16 +814,6 @@ public:
 	}
 };
 REGISTER_CAMERA_SENSOR_HELPER("vd56g3", CameraSensorHelperVd56g3)
-
-class CameraSensorHelperVCMIPI : public CameraSensorHelper
-{
-public:
-	CameraSensorHelperVCMIPI()
-	{
-		gain_ = AnalogueGainExp{ 1.0, expGainDb(0.1) };
-	}
-};
-REGISTER_CAMERA_SENSOR_HELPER("vc_mipi_camera", CameraSensorHelperVCMIPI)
 
 #endif /* __DOXYGEN__ */
 
