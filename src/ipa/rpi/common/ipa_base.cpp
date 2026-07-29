@@ -146,6 +146,7 @@ int32_t IpaBase::init(const IPASettings &settings, const InitParams &params, Ini
 	 * that the kernel driver doesn't. We only do this the first time; we don't need
 	 * to re-parse the metadata after a simple mode-switch for no reason.
 	 */
+	LOG(IPARPI, Debug) << "Creating IPABase CamHelper for " << settings.sensorModel;
 	helper_ = std::unique_ptr<RPiController::CamHelper>(RPiController::CamHelper::create(settings.sensorModel));
 	if (!helper_) {
 		LOG(IPARPI, Error) << "Could not create camera helper for "

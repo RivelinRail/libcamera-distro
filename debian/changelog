@@ -1,3 +1,13 @@
+libcamera (0.7.1+rpt20260609-1) trixie; urgency=medium
+
+  * New upstream version 0.7.1+rpt20260609
+  * Bump SONAME to libcamera0.7
+  * Re-apply VC MIPI camera support patches on top of 0.7.1
+  * d/patches: refresh ppc64el-fix-ftbfs-gcc.patch and
+    skip_failing_tests.patch for 0.7.1
+
+ -- Tom Wardill <tom@howrandom.net>  Wed, 29 Jul 2026 18:29:17 +0100
+
 libcamera (0.6.0+rpt20251202-1) trixie; urgency=medium
 
   * New upstream version 0.6.0+rpt20251202

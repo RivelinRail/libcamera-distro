@@ -3,6 +3,26 @@ Description: These tests have never succeeded, so not a regression.
 Author: Dylan Aïssi <daissi@debian.org>
 Forwarded: not-needed
 
+diff --git a/test/gstreamer/meson.build b/test/gstreamer/meson.build
+index e066c58..4a0a799 100644
+--- a/test/gstreamer/meson.build
++++ b/test/gstreamer/meson.build
+@@ -5,10 +5,10 @@ if not gst_enabled
+ endif
+ 
+ gstreamer_tests = [
+-    {'name': 'single_stream_test', 'sources': ['gstreamer_single_stream_test.cpp']},
+-    {'name': 'multi_stream_test', 'sources': ['gstreamer_multi_stream_test.cpp']},
++#    {'name': 'single_stream_test', 'sources': ['gstreamer_single_stream_test.cpp']},
++#    {'name': 'multi_stream_test', 'sources': ['gstreamer_multi_stream_test.cpp']},
+     {'name': 'device_provider_test', 'sources': ['gstreamer_device_provider_test.cpp']},
+-    {'name': 'memory_lifetime_test', 'sources': ['gstreamer_memory_lifetime_test.cpp']},
++#    {'name': 'memory_lifetime_test', 'sources': ['gstreamer_memory_lifetime_test.cpp']},
+ ]
+ gstreamer_dep = dependency('gstreamer-1.0', required : true)
+ gstapp_dep = dependency('gstreamer-app-1.0', required : true)
+diff --git a/test/ipc/meson.build b/test/ipc/meson.build
+index 8e447d2..d020da2 100644
 --- a/test/ipc/meson.build
 +++ b/test/ipc/meson.build
 @@ -1,8 +1,8 @@
@@ -16,6 +36,8 @@ Forwarded: not-needed
  ]
  
  foreach test : ipc_tests
+diff --git a/test/log/meson.build b/test/log/meson.build
+index f413c38..e4bc36d 100644
 --- a/test/log/meson.build
 +++ b/test/log/meson.build
 @@ -1,8 +1,8 @@
@@ -29,17 +51,8 @@ Forwarded: not-needed
  ]
  
  foreach test : log_test
---- a/test/process/meson.build
-+++ b/test/process/meson.build
-@@ -1,7 +1,7 @@
- # SPDX-License-Identifier: CC0-1.0
- 
- process_tests = [
--    {'name': 'process_test', 'sources': ['process_test.cpp']},
-+#    {'name': 'process_test', 'sources': ['process_test.cpp']},
- ]
- 
- foreach test : process_tests
+diff --git a/test/meson.build b/test/meson.build
+index e445062..054e0e1 100644
 --- a/test/meson.build
 +++ b/test/meson.build
 @@ -57,7 +57,7 @@ internal_tests = [
@@ -65,21 +78,18 @@ Forwarded: not-needed
 -    {'name': 'unique-fd', 'sources': ['unique-fd.cpp']},
 +#    {'name': 'unique-fd', 'sources': ['unique-fd.cpp']},
      {'name': 'utils', 'sources': ['utils.cpp']},
+     {'name': 'value-node', 'sources': ['value-node.cpp']},
      {'name': 'vector', 'sources': ['vector.cpp']},
-     {'name': 'yaml-parser', 'sources': ['yaml-parser.cpp']},
---- a/test/gstreamer/meson.build
-+++ b/test/gstreamer/meson.build
-@@ -5,10 +5,10 @@ if not gst_enabled
- endif
+diff --git a/test/process/meson.build b/test/process/meson.build
+index a80dc2d..df676fb 100644
+--- a/test/process/meson.build
++++ b/test/process/meson.build
+@@ -1,7 +1,7 @@
+ # SPDX-License-Identifier: CC0-1.0
  
- gstreamer_tests = [
--    {'name': 'single_stream_test', 'sources': ['gstreamer_single_stream_test.cpp']},
--    {'name': 'multi_stream_test', 'sources': ['gstreamer_multi_stream_test.cpp']},
-+#    {'name': 'single_stream_test', 'sources': ['gstreamer_single_stream_test.cpp']},
-+#    {'name': 'multi_stream_test', 'sources': ['gstreamer_multi_stream_test.cpp']},
-     {'name': 'device_provider_test', 'sources': ['gstreamer_device_provider_test.cpp']},
--    {'name': 'memory_lifetime_test', 'sources': ['gstreamer_memory_lifetime_test.cpp']},
-+#    {'name': 'memory_lifetime_test', 'sources': ['gstreamer_memory_lifetime_test.cpp']},
+ process_tests = [
+-    {'name': 'process_test', 'sources': ['process_test.cpp']},
++#    {'name': 'process_test', 'sources': ['process_test.cpp']},
  ]
- gstreamer_dep = dependency('gstreamer-1.0', required : true)
- gstapp_dep = dependency('gstreamer-app-1.0', required : true)
+ 
+ foreach test : process_tests
